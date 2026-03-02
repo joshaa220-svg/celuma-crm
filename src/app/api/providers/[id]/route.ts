@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getRequestSessionUser } from "@/lib/auth";
+import { logActivity } from "@/lib/audit";
 import {
   asBoolean,
   asNullableDate,
@@ -12,8 +15,22 @@ type Params = {
 };
 
 export async function PUT(request: NextRequest, { params }: Params) {
+  const user = await getRequestSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const { id } = await params;
   const numericId = Number(id);
+
+  const existing = await prisma.provider.findUnique({ where: { id: numericId } });
+  if (!existing) {
+    return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 });
+  }
+  if (existing.deletedAt) {
+    return NextResponse.json({ error: "Proveedor archivado" }, { status: 409 });
+  }
+
   const form = await request.formData();
 
   const provider = await prisma.provider.update({
@@ -54,16 +71,68 @@ export async function PUT(request: NextRequest, { params }: Params) {
       repeatStatus: asNullableString(form.get("repeatStatus")),
       importantNotes: asNullableString(form.get("importantNotes")),
       followUp: asBoolean(form.get("followUp")),
+      documentLinks: asNullableString(form.get("documentLinks")),
+      gdprConsentForMedia: asBoolean(form.get("gdprConsentForMedia")),
+      gdprConsentAt: asNullableDate(form.get("gdprConsentAt")),
     },
+  });
+
+  await logActivity({
+    userId: user.id,
+    action: "PROVIDER_UPDATED",
+    entityType: EntityType.PROVIDER,
+    entityId: provider.id,
+    summary: provider.businessName,
+    before: existing,
+    after: provider,
   });
 
   return NextResponse.json(provider);
 }
 
-export async function DELETE(_: NextRequest, { params }: Params) {
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const user = await getRequestSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const { id } = await params;
   const numericId = Number(id);
 
-  await prisma.provider.delete({ where: { id: numericId } });
+  const existing = await prisma.provider.findUnique({ where: { id: numericId } });
+  if (!existing) {
+    return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 });
+  }
+  if (existing.deletedAt) {
+    return NextResponse.json({ error: "Proveedor ya archivado" }, { status: 409 });
+  }
+
+  const anonymizedProvider = await prisma.provider.update({
+    where: { id: numericId },
+    data: {
+      businessName: `ANON-${numericId}`,
+      contactName: null,
+      phone: null,
+      email: null,
+      instagram: null,
+      website: null,
+      importantNotes: null,
+      documentLinks: null,
+      gdprConsentForMedia: false,
+      gdprConsentAt: null,
+      deletedAt: new Date(),
+    },
+  });
+
+  await logActivity({
+    userId: user.id,
+    action: "PROVIDER_ANONYMIZED",
+    entityType: EntityType.PROVIDER,
+    entityId: numericId,
+    summary: existing.businessName,
+    before: existing,
+    after: anonymizedProvider,
+  });
+
   return NextResponse.json({ ok: true });
 }

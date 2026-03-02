@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getRequestSessionUser } from "@/lib/auth";
+import { logActivity } from "@/lib/audit";
 import { asNullableDate, asNullableInt, asNullableNumber, asNullableString } from "@/lib/crm";
 
 export async function GET(request: NextRequest) {
+  const user = await getRequestSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const search = request.nextUrl.searchParams.get("search")?.trim() ?? "";
   const status = request.nextUrl.searchParams.get("status")?.trim() ?? "";
   const pageParam = Number(request.nextUrl.searchParams.get("page") ?? "1");
@@ -14,6 +22,7 @@ export async function GET(request: NextRequest) {
 
   const where = {
     AND: [
+      { deletedAt: null },
       status ? { status } : {},
       search
         ? {
@@ -50,13 +59,40 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getRequestSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const form = await request.formData();
+  const fullName = asNullableString(form.get("fullName")) ?? "Cliente sin nombre";
+  const phone = asNullableString(form.get("phone"));
+  const email = asNullableString(form.get("email"));
+
+  const duplicateOr: Array<Record<string, string>> = [{ fullName }];
+  if (phone) duplicateOr.push({ phone });
+  if (email) duplicateOr.push({ email });
+
+  const duplicate = await prisma.client.findFirst({
+    where: {
+      deletedAt: null,
+      OR: duplicateOr,
+    },
+    select: { id: true, fullName: true, email: true, phone: true },
+  });
+
+  if (duplicate) {
+    return NextResponse.json(
+      { error: "Cliente duplicado", duplicate },
+      { status: 409 },
+    );
+  }
 
   const client = await prisma.client.create({
     data: {
-      fullName: asNullableString(form.get("fullName")) ?? "Cliente sin nombre",
-      phone: asNullableString(form.get("phone")),
-      email: asNullableString(form.get("email")),
+      fullName,
+      phone,
+      email,
       eventType: asNullableString(form.get("eventType")),
       eventDate: asNullableDate(form.get("eventDate")),
       eventLocation: asNullableString(form.get("eventLocation")),
@@ -67,7 +103,34 @@ export async function POST(request: NextRequest) {
       source: asNullableString(form.get("source")),
       assignedProviderType: asNullableString(form.get("assignedProviderType")),
       notes: asNullableString(form.get("notes")),
+      gdprConsent: form.get("gdprConsent") === "on" || form.get("gdprConsent") === "true",
+      gdprConsentAt: asNullableDate(form.get("gdprConsentAt")),
+      marketingOptIn: form.get("marketingOptIn") === "on" || form.get("marketingOptIn") === "true",
+      documentLinks: asNullableString(form.get("documentLinks")),
     },
+  });
+
+  const noteContent = asNullableString(form.get("noteContent"));
+  if (noteContent) {
+    await prisma.note.create({
+      data: {
+        entityType: EntityType.CLIENT,
+        entityId: client.id,
+        content: noteContent,
+        channel: asNullableString(form.get("noteChannel")),
+        contactAt: asNullableDate(form.get("noteContactAt")),
+        createdById: user.id,
+      },
+    });
+  }
+
+  await logActivity({
+    userId: user.id,
+    action: "CLIENT_CREATED",
+    entityType: EntityType.CLIENT,
+    entityId: client.id,
+    summary: client.fullName,
+    after: client,
   });
 
   return NextResponse.json(client, { status: 201 });

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Papa from "papaparse";
 import { decode } from "iconv-lite";
 import { prisma } from "@/lib/prisma";
+import { getRequestSessionUser } from "@/lib/auth";
+import { logActivity } from "@/lib/audit";
 
 function parseSpanishDate(value: string | undefined): Date | null {
   if (!value) {
@@ -42,6 +44,11 @@ function parseNumber(text: string | undefined): number | null {
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getRequestSessionUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const formData = await request.formData();
   const file = formData.get("file");
 
@@ -112,7 +119,51 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "El CSV no contiene filas válidas" }, { status: 400 });
   }
 
-  await prisma.provider.createMany({ data });
+  const existing = await prisma.provider.findMany({
+    where: { deletedAt: null },
+    select: { businessName: true, phone: true, email: true },
+  });
 
-  return NextResponse.json({ imported: data.length });
+  const existingBusinessNames = new Set(existing.map((item) => item.businessName.toLowerCase()));
+  const existingPhones = new Set(existing.map((item) => item.phone?.toLowerCase()).filter(Boolean));
+  const existingEmails = new Set(existing.map((item) => item.email?.toLowerCase()).filter(Boolean));
+
+  const uniqueData = data.filter((row) => {
+    const businessName = row.businessName.toLowerCase();
+    const phone = row.phone?.toLowerCase() ?? null;
+    const email = row.email?.toLowerCase() ?? null;
+
+    if (existingBusinessNames.has(businessName)) {
+      return false;
+    }
+    if (phone && existingPhones.has(phone)) {
+      return false;
+    }
+    if (email && existingEmails.has(email)) {
+      return false;
+    }
+
+    existingBusinessNames.add(businessName);
+    if (phone) existingPhones.add(phone);
+    if (email) existingEmails.add(email);
+    return true;
+  });
+
+  if (!uniqueData.length) {
+    return NextResponse.json({ imported: 0, skipped: data.length });
+  }
+
+  await prisma.provider.createMany({ data: uniqueData });
+
+  await logActivity({
+    userId: user.id,
+    action: "PROVIDERS_IMPORTED",
+    summary: `Importados ${uniqueData.length} proveedores`,
+    after: {
+      imported: uniqueData.length,
+      skipped: data.length - uniqueData.length,
+    },
+  });
+
+  return NextResponse.json({ imported: uniqueData.length, skipped: data.length - uniqueData.length });
 }

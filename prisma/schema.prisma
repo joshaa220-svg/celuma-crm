@@ -10,6 +10,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  AGENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum EntityType {
+  PROVIDER
+  CLIENT
+}
+
+model User {
+  id            Int           @id @default(autoincrement())
+  email         String        @unique
+  passwordHash  String
+  name          String?
+  role          UserRole      @default(AGENT)
+  active        Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  tasksCreated  Task[]        @relation("TaskCreatedBy")
+  tasksAssigned Task[]        @relation("TaskAssignedTo")
+  notes         Note[]
+  activities    ActivityLog[]
+  backups       BackupLog[]
+}
+
 model Provider {
   id                   Int      @id @default(autoincrement())
   providerType         String
@@ -47,6 +80,10 @@ model Provider {
   repeatStatus         String?
   importantNotes       String?
   followUp             Boolean  @default(false)
+  documentLinks        String?
+  gdprConsentForMedia  Boolean  @default(false)
+  gdprConsentAt        DateTime?
+  deletedAt            DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }
@@ -66,6 +103,63 @@ model Client {
   source               String?
   assignedProviderType String?
   notes                String?
+  marketingOptIn       Boolean  @default(false)
+  documentLinks        String?
+  gdprConsent          Boolean  @default(false)
+  gdprConsentAt        DateTime?
+  dataRetentionUntil   DateTime?
+  deletedAt            DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+model Task {
+  id         Int        @id @default(autoincrement())
+  title      String
+  description String?
+  dueDate    DateTime?
+  status     TaskStatus @default(PENDING)
+  priority   Int        @default(2)
+  entityType EntityType?
+  entityId   Int?
+  createdById Int
+  assignedToId Int?
+  completedAt DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  createdBy  User       @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignedTo User?      @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+}
+
+model Note {
+  id         Int        @id @default(autoincrement())
+  entityType EntityType
+  entityId   Int
+  content    String
+  channel    String?
+  contactAt  DateTime?
+  createdById Int
+  createdAt  DateTime   @default(now())
+  createdBy  User       @relation(fields: [createdById], references: [id])
+}
+
+model ActivityLog {
+  id         Int        @id @default(autoincrement())
+  userId     Int?
+  action     String
+  entityType EntityType?
+  entityId   Int?
+  summary    String?
+  beforeJson String?
+  afterJson  String?
+  createdAt  DateTime   @default(now())
+  user       User?      @relation(fields: [userId], references: [id])
+}
+
+model BackupLog {
+  id         Int      @id @default(autoincrement())
+  filePath   String
+  createdById Int?
+  createdAt  DateTime @default(now())
+  createdBy  User?    @relation(fields: [createdById], references: [id])
 }

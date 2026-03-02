@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { clientStatuses, contactChannels, providerTypes, responseStates } from "@/lib/crm";
 
 type ProviderItem = {
@@ -64,12 +64,42 @@ type PaginatedResponse<T> = {
   page: number;
   pageSize: number;
   totalPages: number;
+  availableTypes?: string[];
+};
+
+type SessionUser = {
+  id: number;
+  email: string;
+  role: "ADMIN" | "AGENT";
+};
+
+type TaskItem = {
+  id: number;
+  title: string;
+  description: string | null;
+  dueDate: string | null;
+  status: "PENDING" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+  priority: number;
+};
+
+type NoteItem = {
+  id: number;
+  content: string;
+  channel: string | null;
+  createdAt: string;
+  createdBy: {
+    email: string;
+    name: string | null;
+  };
 };
 
 const PAGE_SIZE = 30;
 
-export function CrmDashboard() {
-  const [tab, setTab] = useState<"providers" | "clients">("providers");
+export function CrmDashboard({ currentUser }: { currentUser: SessionUser }) {
+  const [tab, setTab] = useState<"providers" | "clients" | "tasks">("providers");
+  const [providerTypeOptions, setProviderTypeOptions] = useState<string[]>([]);
+  const [providerTypeSelection, setProviderTypeSelection] = useState<string>(providerTypes[0]);
+  const [newProviderType, setNewProviderType] = useState("");
 
   const [providerSearch, setProviderSearch] = useState("");
   const [providerTypeFilter, setProviderTypeFilter] = useState("");
@@ -91,6 +121,12 @@ export function CrmDashboard() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [taskFormKey, setTaskFormKey] = useState(0);
+  const [taskFilter, setTaskFilter] = useState("");
+  const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [noteText, setNoteText] = useState("");
+  const [noteChannel, setNoteChannel] = useState("");
 
   const providerQuery = useMemo(() => {
     const params = new URLSearchParams();
@@ -112,6 +148,7 @@ export function CrmDashboard() {
     setProviders(data.items);
     setProviderTotalPages(data.totalPages);
     setProviderTotal(data.total);
+    setProviderTypeOptions(data.availableTypes?.filter(Boolean) ?? []);
   }
 
   async function loadClients() {
@@ -122,6 +159,106 @@ export function CrmDashboard() {
     setClientTotal(data.total);
   }
 
+  const loadTasks = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (taskFilter) params.set("status", taskFilter);
+    const response = await fetch(`/api/tasks?${params.toString()}`);
+    const data = (await response.json()) as TaskItem[];
+    setTasks(data);
+  }, [taskFilter]);
+
+  const loadNotes = useCallback(async (entityType: "PROVIDER" | "CLIENT", entityId: number) => {
+    const response = await fetch(`/api/notes?entityType=${entityType}&entityId=${entityId}`);
+    const data = (await response.json()) as NoteItem[];
+    setNotes(data);
+  }, []);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
+  async function handleBackup() {
+    const response = await fetch("/api/admin/backup", { method: "POST" });
+    if (!response.ok) {
+      setMessage("No se pudo generar copia de seguridad.");
+      return;
+    }
+    const result = (await response.json()) as { file: string };
+    setMessage(`Copia de seguridad creada: ${result.file}`);
+  }
+
+  async function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+    const formData = new FormData(event.currentTarget);
+    const response = await fetch("/api/tasks", { method: "POST", body: formData });
+    setLoading(false);
+    if (!response.ok) {
+      setMessage("No se pudo crear la tarea.");
+      return;
+    }
+    setTaskFormKey((value) => value + 1);
+    setMessage("Tarea creada.");
+    await loadTasks();
+  }
+
+  async function updateTaskStatus(taskId: number, status: TaskItem["status"]) {
+    const formData = new FormData();
+    formData.set("status", status);
+    const response = await fetch(`/api/tasks/${taskId}`, { method: "PUT", body: formData });
+    if (!response.ok) {
+      setMessage("No se pudo actualizar la tarea.");
+      return;
+    }
+    await loadTasks();
+  }
+
+  async function submitNote() {
+    const targetProvider = tab === "providers" ? selectedProvider : null;
+    const targetClient = tab === "clients" ? selectedClient : null;
+
+    if (!noteText.trim()) {
+      return;
+    }
+
+    if (!targetProvider && !targetClient) {
+      setMessage("Selecciona un proveedor o cliente para registrar comunicación.");
+      return;
+    }
+
+    const formData = new FormData();
+    if (targetProvider) {
+      formData.set("entityType", "PROVIDER");
+      formData.set("entityId", String(targetProvider.id));
+    } else if (targetClient) {
+      formData.set("entityType", "CLIENT");
+      formData.set("entityId", String(targetClient.id));
+    }
+    formData.set("content", noteText.trim());
+    if (noteChannel) formData.set("channel", noteChannel);
+
+    const response = await fetch("/api/notes", { method: "POST", body: formData });
+    if (!response.ok) {
+      setMessage("No se pudo guardar la comunicación.");
+      return;
+    }
+
+    setNoteText("");
+    setNoteChannel("");
+    if (targetProvider) await loadNotes("PROVIDER", targetProvider.id);
+    if (targetClient) await loadNotes("CLIENT", targetClient.id);
+  }
+
+  const availableProviderTypes = useMemo(() => {
+    const set = new Set<string>([...providerTypes, ...providerTypeOptions]);
+    if (selectedProvider?.providerType) {
+      set.add(selectedProvider.providerType);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [providerTypeOptions, selectedProvider]);
+
   useEffect(() => {
     let active = true;
     fetch(`/api/providers?${providerQuery}&page=${providerPage}&pageSize=${PAGE_SIZE}`)
@@ -131,6 +268,7 @@ export function CrmDashboard() {
           setProviders(data.items);
           setProviderTotalPages(data.totalPages);
           setProviderTotal(data.total);
+          setProviderTypeOptions(data.availableTypes?.filter(Boolean) ?? []);
         }
       });
 
@@ -156,12 +294,64 @@ export function CrmDashboard() {
     };
   }, [clientPage, clientQuery]);
 
+  // Load tasks when tab changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(() => {
+    let isMounted = true;
+    if (tab === "tasks") {
+      loadTasks()
+        .then(() => {
+          if (!isMounted) return;
+        })
+        .catch(console.error);
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [tab, loadTasks]);
+
+  // Load notes for selected entity
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(() => {
+    let isMounted = true;
+    if (tab === "providers" && selectedProvider) {
+      loadNotes("PROVIDER", selectedProvider.id)
+        .then(() => {
+          if (!isMounted) return;
+        })
+        .catch(console.error);
+      return;
+    }
+    if (tab === "clients" && selectedClient) {
+      loadNotes("CLIENT", selectedClient.id)
+        .then(() => {
+          if (!isMounted) return;
+        })
+        .catch(console.error);
+      return;
+    }
+    setNotes([]);
+    return () => {
+      isMounted = false;
+    };
+  }, [tab, selectedProvider, selectedClient, loadNotes]);
+
   async function handleProviderSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setMessage("");
 
     const formData = new FormData(event.currentTarget);
+    const resolvedProviderType =
+      providerTypeSelection === "__new__" ? newProviderType.trim() : providerTypeSelection;
+
+    if (!resolvedProviderType) {
+      setLoading(false);
+      setMessage("Debes indicar un tipo de proveedor.");
+      return;
+    }
+
+    formData.set("providerType", resolvedProviderType);
     const method = selectedProvider ? "PUT" : "POST";
     const endpoint = selectedProvider ? `/api/providers/${selectedProvider.id}` : "/api/providers";
 
@@ -175,6 +365,8 @@ export function CrmDashboard() {
 
     setSelectedProvider(null);
     setProviderFormKey((value) => value + 1);
+    setProviderTypeSelection(providerTypes[0]);
+    setNewProviderType("");
     setMessage(selectedProvider ? "Proveedor actualizado." : "Proveedor creado.");
     await loadProviders();
   }
@@ -254,6 +446,18 @@ export function CrmDashboard() {
             <button className="crm-btn crm-btn-ghost" onClick={() => setTab("clients")}>
               Clientes
             </button>
+            <button className="crm-btn crm-btn-ghost" onClick={() => setTab("tasks")}>
+              Tareas
+            </button>
+            {currentUser.role === "ADMIN" ? (
+              <button className="crm-btn crm-btn-soft" onClick={() => void handleBackup()}>
+                Backup
+              </button>
+            ) : null}
+            <span className="text-xs text-slate-500">{currentUser.email}</span>
+            <button className="crm-btn crm-btn-soft" onClick={() => void handleLogout()}>
+              Salir
+            </button>
           </div>
         </div>
       </header>
@@ -270,14 +474,26 @@ export function CrmDashboard() {
             <h2 className="crm-title text-xl mb-3">{selectedProvider ? "Editar proveedor" : "Nuevo proveedor"}</h2>
             <form key={providerFormKey} onSubmit={handleProviderSubmit} className="space-y-3">
               <Field label="Tipo">
-                <select className="crm-select" name="providerType" defaultValue={selectedProvider?.providerType ?? "Decoración"}>
-                  {providerTypes.map((type) => (
+                <select className="crm-select" value={providerTypeSelection} onChange={(event) => setProviderTypeSelection(event.target.value)}>
+                  {availableProviderTypes.map((type) => (
                     <option key={type} value={type}>
                       {type}
                     </option>
                   ))}
+                  <option value="__new__">Crear nuevo tipo...</option>
                 </select>
               </Field>
+              {providerTypeSelection === "__new__" ? (
+                <Field label="Nuevo tipo de proveedor">
+                  <input
+                    className="crm-input"
+                    placeholder="Ejemplo: Iluminación"
+                    value={newProviderType}
+                    onChange={(event) => setNewProviderType(event.target.value)}
+                    required
+                  />
+                </Field>
+              ) : null}
               <Field label="Nombre comercial">
                 <input className="crm-input" name="businessName" defaultValue={selectedProvider?.businessName ?? ""} required />
               </Field>
@@ -344,6 +560,8 @@ export function CrmDashboard() {
                   onClick={() => {
                     setSelectedProvider(null);
                     setProviderFormKey((value) => value + 1);
+                    setProviderTypeSelection(providerTypes[0]);
+                    setNewProviderType("");
                   }}
                 >
                   Limpiar
@@ -376,7 +594,7 @@ export function CrmDashboard() {
                   }}
                 >
                   <option value="">Todos</option>
-                  {providerTypes.map((type) => (
+                  {availableProviderTypes.map((type) => (
                     <option key={type} value={type}>
                       {type}
                     </option>
@@ -423,6 +641,8 @@ export function CrmDashboard() {
                             onClick={() => {
                               setSelectedProvider(provider);
                               setProviderFormKey((value) => value + 1);
+                              setProviderTypeSelection(provider.providerType);
+                              setNewProviderType("");
                             }}
                           >
                             Editar
@@ -462,9 +682,45 @@ export function CrmDashboard() {
                 </button>
               </div>
             </div>
+
+            {selectedProvider ? (
+              <div className="mt-5 border-t border-slate-100 pt-4">
+                <h3 className="crm-title text-lg">Comunicaciones: {selectedProvider.businessName}</h3>
+                <div className="mt-2 grid gap-2">
+                  <input
+                    className="crm-input"
+                    placeholder="Canal (email, llamada, whatsapp...)"
+                    value={noteChannel}
+                    onChange={(event) => setNoteChannel(event.target.value)}
+                  />
+                  <textarea
+                    className="crm-textarea"
+                    placeholder="Resumen de la conversación"
+                    value={noteText}
+                    onChange={(event) => setNoteText(event.target.value)}
+                    rows={3}
+                  />
+                  <div>
+                    <button className="crm-btn crm-btn-primary" type="button" onClick={() => void submitNote()}>
+                      Guardar comunicación
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {notes.map((note) => (
+                      <div key={note.id} className="rounded-xl border border-slate-100 px-3 py-2 text-sm">
+                        <div className="text-slate-500">
+                          {note.channel || "Sin canal"} · {new Date(note.createdAt).toLocaleString("es-ES")} · {note.createdBy.name || note.createdBy.email}
+                        </div>
+                        <div className="text-slate-700">{note.content}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </article>
         </section>
-      ) : (
+      ) : tab === "clients" ? (
         <section className="crm-grid">
           <article className="crm-card col-span-12 lg:col-span-4" style={{ padding: 16 }}>
             <h2 className="crm-title text-xl mb-3">{selectedClient ? "Editar cliente" : "Nuevo cliente"}</h2>
@@ -619,6 +875,110 @@ export function CrmDashboard() {
                   Siguiente
                 </button>
               </div>
+            </div>
+
+            {selectedClient ? (
+              <div className="mt-5 border-t border-slate-100 pt-4">
+                <h3 className="crm-title text-lg">Comunicaciones: {selectedClient.fullName}</h3>
+                <div className="mt-2 grid gap-2">
+                  <input
+                    className="crm-input"
+                    placeholder="Canal (email, llamada, whatsapp...)"
+                    value={noteChannel}
+                    onChange={(event) => setNoteChannel(event.target.value)}
+                  />
+                  <textarea
+                    className="crm-textarea"
+                    placeholder="Resumen de la conversación"
+                    value={noteText}
+                    onChange={(event) => setNoteText(event.target.value)}
+                    rows={3}
+                  />
+                  <div>
+                    <button className="crm-btn crm-btn-primary" type="button" onClick={() => void submitNote()}>
+                      Guardar comunicación
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {notes.map((note) => (
+                      <div key={note.id} className="rounded-xl border border-slate-100 px-3 py-2 text-sm">
+                        <div className="text-slate-500">
+                          {note.channel || "Sin canal"} · {new Date(note.createdAt).toLocaleString("es-ES")} · {note.createdBy.name || note.createdBy.email}
+                        </div>
+                        <div className="text-slate-700">{note.content}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </article>
+        </section>
+      ) : (
+        <section className="crm-grid">
+          <article className="crm-card col-span-12 lg:col-span-4" style={{ padding: 16 }}>
+            <h2 className="crm-title text-xl mb-3">Nueva tarea</h2>
+            <form key={taskFormKey} onSubmit={handleTaskSubmit} className="space-y-3">
+              <Field label="Título">
+                <input className="crm-input" name="title" required />
+              </Field>
+              <Field label="Descripción">
+                <textarea className="crm-textarea" name="description" rows={3} />
+              </Field>
+              <Field label="Fecha límite">
+                <input className="crm-input" type="date" name="dueDate" />
+              </Field>
+              <Field label="Prioridad (1-3)">
+                <select className="crm-select" name="priority" defaultValue="2">
+                  <option value="1">Alta</option>
+                  <option value="2">Media</option>
+                  <option value="3">Baja</option>
+                </select>
+              </Field>
+              <button className="crm-btn crm-btn-primary" type="submit" disabled={loading}>
+                Crear tarea
+              </button>
+            </form>
+          </article>
+
+          <article className="crm-card col-span-12 lg:col-span-8" style={{ padding: 16 }}>
+            <div className="flex flex-wrap items-end gap-2 mb-4">
+              <div className="min-w-56">
+                <div className="crm-label">Estado</div>
+                <select className="crm-select" value={taskFilter} onChange={(event) => setTaskFilter(event.target.value)}>
+                  <option value="">Todos</option>
+                  <option value="PENDING">Pendiente</option>
+                  <option value="IN_PROGRESS">En curso</option>
+                  <option value="DONE">Hecha</option>
+                  <option value="CANCELLED">Cancelada</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {tasks.map((task) => (
+                <div key={task.id} className="rounded-xl border border-slate-100 px-3 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-semibold text-slate-700">{task.title}</div>
+                      <div className="text-sm text-slate-500">
+                        {task.description || "Sin descripción"}
+                        {task.dueDate ? ` · Vence ${new Date(task.dueDate).toLocaleDateString("es-ES")}` : ""}
+                      </div>
+                    </div>
+                    <select
+                      className="crm-select"
+                      value={task.status}
+                      onChange={(event) => void updateTaskStatus(task.id, event.target.value as TaskItem["status"])}
+                    >
+                      <option value="PENDING">Pendiente</option>
+                      <option value="IN_PROGRESS">En curso</option>
+                      <option value="DONE">Hecha</option>
+                      <option value="CANCELLED">Cancelada</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
             </div>
           </article>
         </section>
