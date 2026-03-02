@@ -76,44 +76,56 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data
-    .map((row) => ({
-      contractedStatus: row["Contratado"]?.trim() || null,
-      providerType: row["Tipo de proveedor"]?.trim() || "Otros",
-      businessName: row["Nombre comercial"]?.trim() || "Proveedor sin nombre",
-      contactName: row["Nombre de contacto"]?.trim() || null,
-      phone: row["Teléfono"]?.trim() || null,
-      email: row["E-mail"]?.trim() || null,
-      instagram: row["Instagram"]?.trim() || null,
-      website: row["Web"]?.trim() || null,
-      zone: row["Zona"]?.trim() || null,
-      servicesOffered: row["Servicios que ofrece"]?.trim() || null,
-      minPrice: parseNumber(row["Precio mínimo orientativo"]),
-      avgPrice: parseNumber(row["Precio medio"]),
-      maxPrice: parseNumber(row["Precio máximo"]),
-      specialConditions: row["Condiciones especiales"]?.trim() || null,
-      availableDays: row["Días disponibles"]?.trim() || null,
-      usualHours: row["Horarios habituales"]?.trim() || null,
-      setupTime: row["Tiempo de montaje"]?.trim() || null,
-      teardownTime: row["Tiempo de desmontaje"]?.trim() || null,
-      technicalNeeds: row["Necesidades técnicas"]?.trim() || null,
-      firstContactDate: parseSpanishDate(row["Fecha primer contacto"]),
-      contactChannel: row["Vía de contacto"]?.trim() || null,
-      initialResponse: row["Respuesta inicial"]?.trim() || null,
-      hired: row["Contratado"]?.trim().toLowerCase() === "si",
-      relationshipType: row["Tipo de relación"]?.trim() || null,
-      agreedConditions: row["Condiciones acordadas"]?.trim() || null,
-      professionalism: parseNumber(row["Profesionalidad"]),
-      communication: parseNumber(row["Comunicación"]),
-      punctuality: parseNumber(row["Puntualidad"]),
-      serviceQuality: parseNumber(row["Calidad del servicio"]),
-      flexibility: parseNumber(row["Flexibilidad"]),
-      valueForMoney: parseNumber(row["Relación calidad-precio"]),
-      globalRating: parseNumber(row["Valoración global"]),
-      repeatStatus: row["Repetir"]?.trim() || null,
-      followUp: row["Repetir"]?.trim().toLowerCase() === "si",
-      importantNotes: row["Notas importantes"]?.trim() || null,
-    }))
-    .filter((row) => row.businessName && row.providerType);
+    .map((row, index) => {
+      // Campos obligatorios: businessName or phone or email (al menos uno)
+      const businessName = row["Nombre comercial"]?.trim();
+      const phone = row["Teléfono"]?.trim();
+      const email = row["E-mail"]?.trim();
+
+      // Si no hay ninguno de estos, no es válido
+      if (!businessName && !phone && !email) {
+        return null;
+      }
+
+      return {
+        contractedStatus: row["Contratado"]?.trim() || null,
+        providerType: row["Tipo de proveedor"]?.trim() || "Otros",
+        businessName: businessName || `Proveedor ${index}`,
+        contactName: row["Nombre de contacto"]?.trim() || null,
+        phone: phone || null,
+        email: email || null,
+        instagram: row["Instagram"]?.trim() || null,
+        website: row["Web"]?.trim() || null,
+        zone: row["Zona"]?.trim() || null,
+        servicesOffered: row["Servicios que ofrece"]?.trim() || null,
+        minPrice: parseNumber(row["Precio mínimo orientativo"]),
+        avgPrice: parseNumber(row["Precio medio"]),
+        maxPrice: parseNumber(row["Precio máximo"]),
+        specialConditions: row["Condiciones especiales"]?.trim() || null,
+        availableDays: row["Días disponibles"]?.trim() || null,
+        usualHours: row["Horarios habituales"]?.trim() || null,
+        setupTime: row["Tiempo de montaje"]?.trim() || null,
+        teardownTime: row["Tiempo de desmontaje"]?.trim() || null,
+        technicalNeeds: row["Necesidades técnicas"]?.trim() || null,
+        firstContactDate: parseSpanishDate(row["Fecha primer contacto"]),
+        contactChannel: row["Vía de contacto"]?.trim() || null,
+        initialResponse: row["Respuesta inicial"]?.trim() || null,
+        hired: row["Contratado"]?.trim().toLowerCase() === "si",
+        relationshipType: row["Tipo de relación"]?.trim() || null,
+        agreedConditions: row["Condiciones acordadas"]?.trim() || null,
+        professionalism: parseNumber(row["Profesionalidad"]),
+        communication: parseNumber(row["Comunicación"]),
+        punctuality: parseNumber(row["Puntualidad"]),
+        serviceQuality: parseNumber(row["Calidad del servicio"]),
+        flexibility: parseNumber(row["Flexibilidad"]),
+        valueForMoney: parseNumber(row["Relación calidad-precio"]),
+        globalRating: parseNumber(row["Valoración global"]),
+        repeatStatus: row["Repetir"]?.trim() || null,
+        followUp: row["Repetir"]?.trim().toLowerCase() === "si",
+        importantNotes: row["Notas importantes"]?.trim() || null,
+      };
+    })
+    .filter((row) => row !== null);
 
   if (!data.length) {
     return NextResponse.json({ error: "El CSV no contiene filas válidas" }, { status: 400 });
