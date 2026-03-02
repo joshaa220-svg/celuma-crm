@@ -45,3 +45,18 @@ next-env.d.ts
 # local sqlite database
 /prisma/dev.db
 /prisma/dev.db-journal
+/prisma/dev.db-shm
+/prisma/dev.db-wal
+
+# local backups / exports
+/backups/
+/exports/
+/tmp/
+/temp/
+*.sqlite
+*.sqlite3
+*.db.bak
+
+# editor / system noise
+.idea/
+Thumbs.db
