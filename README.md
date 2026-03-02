@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Celuma CRM (Local)
 
-## Getting Started
+CRM web local para gestionar **proveedores** y **clientes** desde el navegador.
 
-First, run the development server:
+- Tecnología: `Next.js` + `Prisma` + `SQLite`
+- Base de datos local: `prisma/dev.db`
+- Diseño: paleta y logo de Celuma integrados
+
+## 1) Requisitos
+
+- Tener instalado `Node.js` (recomendado versión 20 o superior)
+- Estar dentro de la carpeta del proyecto: `celuma-crm`
+
+## 2) Puesta en marcha (paso a paso)
+
+1. Instalar dependencias:
+
+```bash
+npm install
+```
+
+2. Crear/actualizar base de datos:
+
+```bash
+npm run db:migrate -- --name init
+```
+
+3. (Opcional) Cargar datos de ejemplo:
+
+```bash
+npm run db:seed
+```
+
+4. Iniciar la app:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+5. Abrir en navegador:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`http://localhost:3000`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 3) Cómo se utiliza
 
-## Learn More
+Al entrar verás 2 áreas:
 
-To learn more about Next.js, take a look at the following resources:
+- **Proveedores**
+	- Crear, editar y borrar proveedores
+	- Buscar por texto (nombre, email, zona, servicios, notas)
+	- Filtrar por tipo de proveedor
+	- Importar proveedores desde CSV (separador `;`)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Clientes**
+	- Crear, editar y borrar clientes
+	- Buscar por texto
+	- Filtrar por estado del cliente
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 4) Importación CSV de proveedores
 
-## Deploy on Vercel
+Desde la pestaña **Proveedores**, en “Importar proveedores desde CSV”:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Selecciona tu archivo `.csv`
+2. Pulsa **Importar CSV**
+3. Se mostrará un mensaje con el número de registros importados
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Notas:
+
+- El importador lee con separador `;`
+- Está preparado para campos como los del CSV de proveedores que compartiste
+
+## 5) Scripts útiles
+
+- Ejecutar en desarrollo: `npm run dev`
+- Compilar producción: `npm run build`
+- Lint: `npm run lint`
+- Migraciones Prisma: `npm run db:migrate`
+- Prisma Studio (ver datos): `npm run db:studio`
+
+## 6) Estructura principal
+
+- UI principal: `src/components/crm-dashboard.tsx`
+- API proveedores: `src/app/api/providers`
+- API clientes: `src/app/api/clients`
+- Modelo DB: `prisma/schema.prisma`
+

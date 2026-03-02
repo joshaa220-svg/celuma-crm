@@ -1,0 +1,71 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Provider {
+  id                   Int      @id @default(autoincrement())
+  providerType         String
+  businessName         String
+  contactName          String?
+  phone                String?
+  email                String?
+  instagram            String?
+  website              String?
+  zone                 String?
+  servicesOffered      String?
+  minPrice             Float?
+  avgPrice             Float?
+  maxPrice             Float?
+  specialConditions    String?
+  availableDays        String?
+  usualHours           String?
+  setupTime            String?
+  teardownTime         String?
+  technicalNeeds       String?
+  firstContactDate     DateTime?
+  contactChannel       String?
+  initialResponse      String?
+  contractedStatus     String?
+  hired                Boolean  @default(false)
+  relationshipType     String?
+  agreedConditions     String?
+  professionalism      Float?
+  communication        Float?
+  punctuality          Float?
+  serviceQuality       Float?
+  flexibility          Float?
+  valueForMoney        Float?
+  globalRating         Float?
+  repeatStatus         String?
+  importantNotes       String?
+  followUp             Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Client {
+  id                   Int      @id @default(autoincrement())
+  fullName             String
+  phone                String?
+  email                String?
+  eventType            String?
+  eventDate            DateTime?
+  eventLocation        String?
+  guestCount           Int?
+  budgetMin            Float?
+  budgetMax            Float?
+  status               String   @default("Lead")
+  source               String?
+  assignedProviderType String?
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
